@@ -1,0 +1,136 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Safety Map with Color Zones</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    #map { height: 80vh; width: 100%; }
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #score { text-align: center; font-size: 1.2em; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h3>Live Location + Hospitals & Police + Safety Zones</h3>
+  <div id="score">Calculating safety score...</div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([0,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let userMarker = null;
+    let safetyZoneCircle = null;
+    let policeCount = 0;
+    let hospitalCount = 0;
+    const scoreDiv = document.getElementById('score');
+
+    async function fetchNearbyPlaces(lat, lng) {
+      const radius = 2000; // 2 km
+      const query = `
+        [out:json];
+        (
+          node["amenity"="hospital"](around:${radius},${lat},${lng});
+          node["amenity"="police"](around:${radius},${lat},${lng});
+        );
+        out;`;
+
+      const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        policeCount = 0;
+        hospitalCount = 0;
+
+        data.elements.forEach(place => {
+          const pLat = place.lat;
+          const pLng = place.lon;
+          const type = place.tags.amenity;
+          const name = place.tags.name || "Unnamed " + type;
+
+          if(type === "police") policeCount++;
+          if(type === "hospital") hospitalCount++;
+
+          L.marker([pLat, pLng], {icon: L.icon({
+            iconUrl: type === 'hospital' ? 
+              'https://cdn-icons-png.flaticon.com/512/2965/2965567.png' :
+              'https://cdn-icons-png.flaticon.com/512/149/149059.png',
+            iconSize: [32,32], iconAnchor: [16,32]
+          })}).addTo(map)
+            .bindPopup(`<b>${name}</b><br>Type: ${type}`);
+        });
+
+        updateSafetyZone(lat, lng);
+
+      } catch(err) {
+        console.error("Error fetching nearby places:", err);
+      }
+    }
+
+    function updateSafetyZone(lat, lng) {
+      // Calculate safety score
+      const policeWeight = 70;
+      const hospitalWeight = 30;
+      const maxPolice = 5;
+      const maxHospital = 5;
+
+      let score = (Math.min(policeCount,maxPolice)/maxPolice)*policeWeight +
+                  (Math.min(hospitalCount,maxHospital)/maxHospital)*hospitalWeight;
+
+      score = Math.min(100, Math.round(score));
+
+      // Determine color
+      let color = '';
+      let category = '';
+      if(score <= 40){ color = 'red'; category = 'Unsafe'; }
+      else if(score <= 70){ color = 'orange'; category = 'Moderate'; }
+      else { color = 'green'; category = 'Safe'; }
+
+      scoreDiv.textContent = `Safety Score: ${score}/100 — ${category} (Police: ${policeCount}, Hospitals: ${hospitalCount})`;
+
+      // Draw or update the circle
+      if(safetyZoneCircle){
+        safetyZoneCircle.setLatLng([lat, lng]);
+        safetyZoneCircle.setStyle({color: color, fillColor: color});
+      } else {
+        safetyZoneCircle = L.circle([lat, lng], {
+          color: color,
+          fillColor: color,
+          fillOpacity: 0.3,
+          radius: 2000
+        }).addTo(map)
+        .bindPopup(`Safety Zone: ${category}`);
+      }
+    }
+
+    // Watch live location
+    if('geolocation' in navigator){
+      navigator.geolocation.watchPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+
+        if(!userMarker){
+          userMarker = L.marker([lat, lng], {icon: L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/64/64113.png',
+            iconSize: [32,32], iconAnchor: [16,32]
+          })}).addTo(map).bindPopup("You are here").openPopup();
+
+          map.setView([lat, lng], 15);
+          fetchNearbyPlaces(lat, lng);
+        } else {
+          userMarker.setLatLng([lat, lng]);
+          // Optional: fetchNearbyPlaces(lat, lng) if you want dynamic updates
+        }
+
+      }, err => console.error(err), { enableHighAccuracy: true, maximumAge: 1000 });
+    } else {
+      alert("Geolocation is not supported by your browser.");
+    }
+  </script>
+</body>
+</html>

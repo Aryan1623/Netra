@@ -1,0 +1,181 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>User Registration</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 760px; margin: 28px auto; padding: 12px; }
+    input, button { padding: 8px; margin: 6px; width: 300px; }
+    pre { background:#f6f7fb; padding:12px; border-radius:6px; overflow:auto; white-space: pre-wrap; }
+    label { display:inline-block; width:150px; text-align: right; margin-right: 10px; }
+    h3 { border-top: 1px solid #ddd; padding-top: 15px; margin-top: 20px;}
+  </style>
+</head>
+<body>
+  <h1>User Registration (Issuer)</h1>
+
+  <p>Enter details to register a tourist on the blockchain:</p>
+  <div><label>Aadhar:</label><input id="aadhar" type="text" placeholder="e.g., 123456789012" /></div>
+  <div><label>Passport:</label><input id="passport" type="text" placeholder="e.g., A12345678" /></div>
+  <div><label>Name:</label><input id="name" type="text" placeholder="e.g., John Doe" /></div>
+  <div><label>Gender:</label><input id="gender" type="text" placeholder="e.g., Male" /></div>
+  <div><label>Age:</label><input id="age" type="number" placeholder="e.g., 30" /></div>
+  <div><label>Password:</label><input id="password" type="password" /></div>
+  <div><label>Nationality:</label><input id="nationality" type="text" placeholder="e.g., Indian" /></div>
+  <div><label>Destination:</label><input id="destination" type="text" placeholder="e.g., Paris" /></div>
+
+  <button id="register">Register</button>
+
+  <h3>Status</h3>
+  <pre id="out"></pre>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+<script>
+const OUT = document.getElementById('out');
+const regBtn = document.getElementById('register');
+
+const REGISTRY_ABI = [
+    // ABI for registerUser function
+    {
+        "inputs": [
+            { "internalType": "string", "name": "aadhar", "type": "string" },
+            { "internalType": "string", "name": "passport", "type": "string" },
+            { "internalType": "string", "name": "name", "type": "string" },
+            { "internalType": "string", "name": "gender", "type": "string" },
+            { "internalType": "uint8", "name": "age", "type": "uint8" },
+            { "internalType": "bytes32", "name": "passwordHash", "type": "bytes32" },
+            { "internalType": "string", "name": "nationality", "type": "string" },
+            { "internalType": "string", "name": "destination", "type": "string" }
+        ],
+        "name": "registerUser",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    // ABI for UserRegistered event (useful for listening to events)
+    {
+        "anonymous": false,
+        "inputs": [
+            { "indexed": false, "internalType": "string", "name": "userId", "type": "string" },
+            { "indexed": false, "internalType": "string", "name": "aadhar", "type": "string" },
+            { "indexed": false, "internalType": "string", "name": "passport", "type": "string" },
+            { "indexed": false, "internalType": "string", "name": "name", "type": "string" },
+            { "indexed": false, "internalType": "string", "name": "gender", "type": "string" },
+            { "indexed": false, "internalType": "uint8", "name": "age", "type": "uint8" },
+            { "indexed": false, "internalType": "string", "name": "nationality", "type": "string" },
+            { "indexed": false, "internalType": "string", "name": "destination", "type": "string" },
+            { "indexed": false, "internalType": "address", "name": "issuer", "type": "address" }
+        ],
+        "name": "UserRegistered",
+        "type": "event"
+    },
+    // CORRECTLY ADDED ABI for getUserByAadhar
+    {
+        "inputs": [{ "internalType": "string", "name": "aadhar", "type": "string" }],
+        "name": "getUserByAadhar",
+        "outputs": [
+            { "internalType": "string", "name": "userId", "type": "string" },
+            { "internalType": "string", "name": "passport", "type": "string" },
+            { "internalType": "string", "name": "name", "type": "string" },
+            { "internalType": "string", "name": "gender", "type": "string" },
+            { "internalType": "uint8", "name": "age", "type": "uint8" },
+            { "internalType": "string", "name": "nationality", "type": "string" },
+            { "internalType": "string", "name": "destination", "type": "string" },
+            { "internalType": "address", "name": "issuer", "type": "address" }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
+];
+
+
+const REGISTRY_ADDRESS = "0xd1A614B3A7290816B8d3150A38b8CF76DA524fa7"; // Replace with your deployed contract address
+
+function log(v) {
+    OUT.textContent = ""; // Clear previous output
+    OUT.textContent += JSON.stringify(v, (key, value) =>
+        typeof value === 'bigint' ? value.toString() : value, 2
+    ) + "\n";
+}
+
+function logAppend(v) {
+    OUT.textContent += JSON.stringify(v, (key, value) =>
+        typeof value === 'bigint' ? value.toString() : value, 2
+    ) + "\n";
+}
+
+regBtn.onclick = async () => {
+  try {
+    OUT.textContent = ""; // Clear output on new attempt
+    if (!window.ethereum) return alert("Please install MetaMask to use this application.");
+    
+    log({ status: "Connecting to MetaMask..." });
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+    const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, signer);
+
+    const aadhar = document.getElementById('aadhar').value.trim();
+    const passport = document.getElementById('passport').value.trim();
+    const name = document.getElementById('name').value.trim();
+    const gender = document.getElementById('gender').value.trim();
+    const age = parseInt(document.getElementById('age').value.trim());
+    const password = document.getElementById('password').value.trim();
+    const nationality = document.getElementById('nationality').value.trim();
+    const destination = document.getElementById('destination').value.trim();
+
+    if (!aadhar || !passport || !name || !gender || !age || !password || !nationality || !destination) {
+        return alert("Please fill all fields before registering.");
+    }
+
+    // Hash the password using Keccak256
+    const passwordHash = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(password));
+
+    log({ action: "Preparing to register user...", aadhar, passport, name });
+    logAppend({ info: "Please confirm the transaction in MetaMask." });
+
+    const tx = await registry.registerUser(
+        aadhar, passport, name, gender, age, passwordHash, nationality, destination
+    );
+    
+    log({ status: "Transaction sent!", txHash: tx.hash });
+    logAppend({ info: "Waiting for the transaction to be confirmed on the blockchain..." });
+
+    // Wait for the transaction to be mined
+    const receipt = await tx.wait();
+    logAppend({ status: "Transaction confirmed!", blockNumber: receipt.blockNumber });
+
+    // Fetch the newly registered user's details
+    logAppend({ info: "Fetching user details from the contract..." });
+    const details = await registry.getUserByAadhar(aadhar);
+    
+    // Display the final results
+    log({
+        finalStatus: "✅ User Registered Successfully!",
+        userDetails: {
+            userId: details[0],
+            passport: details[1],
+            name: details[2],
+            gender: details[3],
+            age: details[4],
+            nationality: details[5],
+            destination: details[6],
+            issuer: details[7]
+        }
+    });
+
+  } catch (err) {
+    console.error(err);
+    let errorMessage = err.message;
+    if (err.data && err.data.message) {
+        errorMessage = err.data.message;
+    } else if (err.reason) {
+        errorMessage = err.reason;
+    }
+    log({ error: "An error occurred", message: errorMessage });
+  }
+};
+</script>
+</body>
+</html>

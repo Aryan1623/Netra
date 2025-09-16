@@ -1,6 +1,6 @@
 async function main() {
   const [deployer] = await ethers.getSigners();
-  const registry = await ethers.getContractAt("TouristIDRegistry", "0x84ab38139f8D8B7F6e1e030C874EE661A0EF16D6");
+  const registry = await ethers.getContractAt("TouristIDRegistry", "0xd1A614B3A7290816B8d3150A38b8CF76DA524fa7");
 
   const tx = await registry.setTrustedIssuer(deployer.address, true);
   await tx.wait();
