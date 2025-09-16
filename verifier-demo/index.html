@@ -1,0 +1,132 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Verifier Demo - Police Checkpost</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 760px; margin: 28px auto; padding: 12px; }
+    button { padding: 8px 12px; margin: 6px; }
+    pre { background:#f6f7fb; padding:12px; border-radius:6px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Police Check-post — Verifier Demo</h1>
+
+  <p>
+    Connect MetaMask (set to Polygon Amoy testnet). This page will:
+    <ol>
+      <li>Fetch a VC from issuer (/issue-id)</li>
+      <li>Verify the signature locally (recover address)</li>
+      <li>Anchor credential on-chain by calling <code>anchorCredential()</code></li>
+      <li>Check that the anchor matches the recovered address</li>
+    </ol>
+  </p>
+
+  <div>
+    <button id="connect">Connect MetaMask</button>
+    <button id="scan">Scan QR (simulate fetch VC)</button>
+  </div>
+
+  <div id="status"></div>
+
+  <h3>Verification Output</h3>
+  <pre id="out"></pre>
+
+<script>
+const OUT = document.getElementById('out');
+const STATUS = document.getElementById('status');
+const connectBtn = document.getElementById('connect');
+const scanBtn = document.getElementById('scan');
+
+let provider;
+let signer;
+let userAddress;
+
+const REGISTRY_ABI = [
+  {
+    "inputs": [
+      { "internalType": "bytes32", "name": "credentialHash", "type": "bytes32" }
+    ],
+    "name": "anchorCredential",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bytes32", "name": "credentialHash", "type": "bytes32" }
+    ],
+    "name": "getCredentialIssuer",
+    "outputs": [
+      { "internalType": "address", "name": "", "type": "address" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
+
+const REGISTRY_ADDRESS = "0x84ab38139f8D8B7F6e1e030C874EE661A0EF16D6";
+
+function log(v) { OUT.textContent += JSON.stringify(v, null, 2) + "\n"; }
+
+connectBtn.onclick = async () => {
+  if (!window.ethereum) return alert("Install MetaMask");
+  await window.ethereum.request({ method: "eth_requestAccounts" });
+  provider = new ethers.providers.Web3Provider(window.ethereum);
+  signer = provider.getSigner();
+  userAddress = await signer.getAddress();
+  STATUS.innerText = "Connected: " + userAddress;
+};
+
+scanBtn.onclick = async () => {
+  OUT.textContent = "";
+
+  // 1) Fetch VC from backend
+  const resp = await fetch("http://localhost:3000/issue-id", {
+    method: "POST",
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ touristName: "Alice Example" })
+  });
+  const data = await resp.json();
+  log({ fetched_vc: data.vc, anchorHash: data.anchorHash });
+
+  // 2) Verify signature locally
+  const vc = data.vc;
+  const signature = vc.signature;
+  const vcCopy = { ...vc };
+  delete vcCopy.signature;
+  const signedMsg = JSON.stringify(vcCopy);
+
+  const recovered = ethers.utils.verifyMessage(signedMsg, signature);
+  log({ recovered });
+
+  if (!provider || !signer) {
+    STATUS.innerText = "Connect MetaMask first";
+    return;
+  }
+
+  // 3) Call anchorCredential() ⭐
+  const registry = new ethers.Contract(REGISTRY_ADDRESS, REGISTRY_ABI, signer);
+  const anchorHash = data.anchorHash;
+  try {
+    STATUS.innerText = "Sending transaction...";
+    const tx = await registry.anchorCredential(anchorHash); // write
+    log({ txHash: tx.hash });
+    await tx.wait(); // wait for mining
+    STATUS.innerText = "Transaction confirmed";
+
+    // 4) Read back on-chain
+    const anchoredBy = await registry.getCredentialIssuer(anchorHash);
+    log({ anchoredBy });
+    const ok = anchoredBy && anchoredBy.toLowerCase() === recovered.toLowerCase();
+    log({ verified: ok });
+  } catch (err) {
+    log({ error: err.message });
+  }
+};
+</script>
+
+<!-- main ethers -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+</body>
+</html>
